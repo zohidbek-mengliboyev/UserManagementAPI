@@ -2,10 +2,12 @@
 using UserManagementAPI.Data;
 using UserManagementAPI.Models.Requests;
 using UserManagementAPI.Models;
+using UserManagementAPI.Models.Responses;
+using UserManagementAPI.Specifications;
 
 namespace UserManagementAPI.Endpoints.Users
 {
-    public class GetAllUsersEndpoint : Endpoint<GetPaginatedUsersRequest, IEnumerable<User>>
+    public class GetAllUsersEndpoint : Endpoint<GetFilteredUsersRequest, PaginatedResponse<User>>
     {
         private readonly IUserRepository _userRepository;
 
@@ -20,9 +22,27 @@ namespace UserManagementAPI.Endpoints.Users
             AllowAnonymous();
         }
 
-        public override async Task<IEnumerable<User>> ExecuteAsync(GetPaginatedUsersRequest req, CancellationToken ct)
+        public override async Task<PaginatedResponse<User>> ExecuteAsync(GetFilteredUsersRequest req, CancellationToken ct)
         {
-            return await _userRepository.GetAllAsync(req.Page, req.PageSize);
+            var spec = new UserSpecification();
+            spec.AddFilterByName(req.Name);
+            spec.AddFilterByAgeRange(req.MinAge, req.MaxAge);
+            spec.AddSorting(req.SortBy, req.IsDescending);
+
+            var count = await _userRepository.CountAsync(spec);
+
+            const int maxPageSize = 100;
+            req.PageSize = Math.Min(req.PageSize, maxPageSize); 
+            
+            var users = await _userRepository.GetAllAsync(spec, req.Page, req.PageSize);
+
+            return new PaginatedResponse<User>
+            {
+                Data = users,
+                Page = req.Page,
+                PageSize = req.PageSize,
+                TotalCount = count
+            };
         }
     }
 }

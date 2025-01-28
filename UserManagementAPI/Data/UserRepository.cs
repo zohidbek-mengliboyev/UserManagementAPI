@@ -3,6 +3,7 @@ using NanoidDotNet;
 using Npgsql;
 using System.Data;
 using UserManagementAPI.Models;
+using UserManagementAPI.Specifications;
 
 namespace UserManagementAPI.Data
 {
@@ -52,24 +53,34 @@ namespace UserManagementAPI.Data
                 Email = dto.Email,
                 Address = dto.Address,
                 FavoriteFruit = dto.FavoriteFruit,
-                Tags = dto.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string>()
+                Tags = dto.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string>(),
+                CreatedAt = dto.CreatedAt,
+                UpdatedAt = dto.UpdatedAt
             };
         }
 
-        public async Task<IEnumerable<User>> GetAllAsync(int page = 1, int pageSize = 10)
+        public async Task<IEnumerable<User>> GetAllAsync(ISpecification<User> specification, int page, int pageSize)
         {
             await EnsureConnectionOpenAsync();
 
-            const string sql = @"
+            var filter = specification?.ToSql() ?? string.Empty;
+            var sort = specification?.GetOrderBy() ?? string.Empty;
+
+            var sql = $@"
             SELECT u.*, string_agg(t.name, ',') as Tags
             FROM users u
             LEFT JOIN user_tags ut ON u.id = ut.user_id
             LEFT JOIN tags t ON ut.tag_id = t.id
+            {(string.IsNullOrWhiteSpace(filter) ? "" : $"WHERE {filter}")}
             GROUP BY u.id
-            ORDER BY u.created_at DESC
+            {(sort.Contains("ORDER BY") ? sort : "ORDER BY u.created_at DESC")}
             OFFSET @Offset LIMIT @Limit";
 
-            var dtos = await _db.QueryAsync<UserDTO>(sql, new { Offset = (page - 1) * pageSize, Limit = pageSize });
+            var parameters = specification?.GetParameters() ?? new Dictionary<string, object>();
+            parameters["Offset"] = (page - 1) * pageSize;
+            parameters["Limit"] = pageSize;
+
+            var dtos = await _db.QueryAsync<UserDTO>(sql, parameters);
 
             if (!dtos.Any()) return Enumerable.Empty<User>();
 
@@ -86,8 +97,27 @@ namespace UserManagementAPI.Data
                 Email = dto.Email,
                 Address = dto.Address,
                 FavoriteFruit = dto.FavoriteFruit,
-                Tags = dto.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string>()
+                Tags = dto.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string>(),
+                CreatedAt = dto.CreatedAt,
+                UpdatedAt = dto.UpdatedAt
             });
+        }
+
+        public async Task<int> CountAsync(UserSpecification specification)
+        {
+            await EnsureConnectionOpenAsync();
+
+            var sql = @"SELECT COUNT(*) FROM users u";
+
+            var conditions = specification.ToSql();
+            if (!string.IsNullOrEmpty(conditions))
+            {
+                sql += $" WHERE {conditions}";
+            }
+
+            var parameters = specification.GetParameters();
+
+            return await _db.ExecuteScalarAsync<int>(sql, parameters);
         }
 
         public async Task<string> CreateAsync(User user)

@@ -14,5 +14,7 @@
         public string Address { get; set; }
         public string FavoriteFruit { get; set; }
         public string Tags { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
     }
 }
